@@ -50,7 +50,7 @@ def plot_real_time(fig,axarr,rawfile,nch,nSB,freqs,vmin,vmax,maxSamples=10000,sk
              data=tmpdata[:]
              hasdata=True
         else:
-             data=np.concatenate((data,tmpdata,axis=0)
+             data=np.concatenate((data,tmpdata),axis=0)
         mymedian=np.median(data,axis=0)
         #fig.clf()
         ax=axarr
