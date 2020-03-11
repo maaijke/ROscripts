@@ -41,13 +41,16 @@ def plot_real_time(fig,axarr,rawfile,nch,nSB,freqs,vmin,vmax,maxSamples=10000,sk
           fig.suptitle(starttime_dt.strftime("%m/%d/%Y"))
      while(True):   
         mybuffer = rawfile.read(maxSamples*bytes_per_sample*nch*nSB)
-        tmpdata=np.frombuffer(mybuffer,dtype=np.float32) #np.float = np.float64!!
-        nSam=tmpdata.shape[0]/(nch*nSB)
+        tmpdata = np.frombuffer(mybuffer,dtype=np.float32) #np.float = np.float64!!
+        nSam = tmpdata.shape[0]//(nch*nSB)
+        tmpdata = np.average(tmpdata.reshape(nSam,(nch*nSB))[:-nSam%skiptime,:-(nch*nSB)%skipch].reshape((-1,skiptime,nch*nSB)),axis=1)
+        tmpdata = np.average(tmpdata.reshape(data.shape[0],-1,skipch),axis=2)
         if not hasdata:
-             data=tmpdata.reshape(nSam,(nch*nSB))[::skiptime,::skipch]
+             #data=tmpdata.reshape(nSam,(nch*nSB))[::skiptime,::skipch]
+             data=tmpdata[:]
              hasdata=True
         else:
-             data=np.concatenate((data,tmpdata.reshape(nSam,(nch*nSB))[::skiptime,::skipch]),axis=0)
+             data=np.concatenate((data,tmpdata,axis=0)
         mymedian=np.median(data,axis=0)
         #fig.clf()
         ax=axarr
