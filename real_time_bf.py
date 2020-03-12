@@ -32,7 +32,77 @@ def get_metadata_from_h5(h5file):
      return metadata
 
 
-def plot_real_time(fig,axarr,rawfile,nch,nSB,freqs,vmin,vmax,maxSamples=10000,skiptime=25,skipch=1,skipSamples=0,starttime=None,endtime=None,sampleSize=1./125.,cmap='Reds',show_norm=False):
+def plot_real_time2(fig,axarr,rawfile,nch,nSB,freqs,vmin,vmax,readTime=10,averagetime=1,averagech=10,skipSamples=0,starttime=None,endtime=None,sampleSize=1./125.,plottime=1800,cmap='Reds',show_norm=False):
+     rawfile.seek(skipSamples*bytes_per_sample*nch*nSB)
+     if not starttime is None:
+          starttime += (skipSamples*sampleSize)/(24*3600.)
+          starttime_dt =dt.strptime(pt.taql('select str(mjdtodate({})) as date'.format(starttime)).getcol('date')[0], '%Y/%m/%d/%H:%M:%S')
+          fig.suptitle(starttime_dt.strftime("%m/%d/%Y"))
+     data=np.zeros((plottime*averagetime,nSB*nch//averagech),dtype=np.float32)
+     time=starttime
+     currentsample=0
+     readSamples=int(readTime//sampleSize)
+     averageSamples=int(averagetime//sampleSize)
+     averagetime=averageSamples*sampleSize
+     readSamples-=readSamples%averageSamples  #make sure you read an integer number of averageSamples
+     ax=axarr
+     if show_norm:
+          ax=ax[0]
+     ax.cla()
+     myextent=[0,data.shape[0],freqs[0]*1e-6,freqs[-1]*1e-6]
+     myextent[0]=mdates.date2num(starttime_dt)
+     myextent[1]=mdates.date2num(dt.strptime(pt.taql('select str(mjdtodate({})) as date'.format(starttime+plottime/(24.*3600.))).getcol('date')[0], '%Y/%m/%d/%H:%M:%S'))  # thanks to TJD
+     myimshow = ax.imshow((data).T,origin='lower',interpolation='nearest',aspect='auto',vmin=vmin,vmax=vmax,extent=myextent,cmap=cmap)
+     ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+     ax.set_ylabel("freq (MHz)")
+     if show_norm:
+          ax2=axarr[1]
+          ax2.cla()
+          mymedian = np.ones(nSB*nch//averagech,dtype=np.float)
+          ax2.plot(freqs[::averagech]*1e-6,mymedian,'k')
+          ax2.axes.set_yscale("log")
+          ax2.set_xlabel("freq (MHz)")
+     while(time<endtime):
+          mybuffer = rawfile.read(readSamples*bytes_per_sample*nch*nSB) # TODO:before reading check that data is there?
+          tmpdata = np.frombuffer(mybuffer,dtype=np.float32) #N.B.: np.float = np.float64!!
+          if not tmpdata.shape:
+               #out of data increase waittime
+               waittime=readTime-1  #1 second for processing?
+          else:
+               waittime=0.01
+          nSam = tmpdata.shape[0]//(nch*nSB)
+          tmpdata = np.average(tmpdata.reshape(nSam,(nch*nSB))[:nSam-nSam%averageSamples].reshape((-1,averageSamples,nch*nSB)),axis=1)
+          if averagech>1:
+               tmpdata = np.average(tmpdata[:,:(nch*nSB)-(nch*nSB)%averagech].reshape((tmpdata.shape[0],-1,averagech)),axis=2)
+          if currentsample+tmpdata.shape[0]>data.shape[0]:
+               if currentsample<data.shape[0]:
+                    data[:-tmpdata.shape[0]] = data[currentsample-(data.shape[0]-tmpdata.shape[0]):currentsample]
+               else:
+                    data[:-tmpdata.shape[0]]=data[tmpdata.shape[0]:]
+               data[-tmpdata.shape[0]:]=tmpdata[:]
+               mymedian=np.median(data,axis=0)
+               plottimestart=dt.strptime(pt.taql('select str(mjdtodate({})) as date'.format(time+(tmpdata.shape[0]*averagetime)/(24.*3600.) - plottime/(24.*3600.))).getcol('date')[0], '%Y/%m/%d/%H:%M:%S')
+               myextent[0]=mdates.date2num(plottimestart)
+               plottimeend=dt.strptime(pt.taql('select str(mjdtodate({})) as date'.format(time+(tmpdata.shape[0]*averagetime)/(24.*3600.))).getcol('date')[0], '%Y/%m/%d/%H:%M:%S')
+               myextent[1]=mdates.date2num(plottimeend)
+          else:
+               data[currentsample:currentsample+tmpdata.shape[0]]=tmpdata[:]
+               mymedian=np.median(data[:currentsample],axis=0)
+          currentsample+=tmpdata.shape[0]
+
+          time+=(tmpdata.shape[0]*averagetime)/(24.*3600.)
+          myimshow.set_data((data/mymedian).T)
+          myimshow.set_extent(myextent)
+          if show_norm:
+               ax2.cla()
+               ax2.plot(freqs[::averagech]*1e-6,mymedian,'k')
+               ax2.axes.set_yscale("log")
+               ax2.set_xlabel("freq (MHz)")
+          plt.pause(waittime)
+#imshow.setdata(data/mymedian)
+         
+
+def plot_real_time(fig,axarr,rawfile,nch,nSB,freqs,vmin,vmax,maxSamples=1000,skiptime=125,skipch=1,skipSamples=0,starttime=None,endtime=None,sampleSize=1./125.,cmap='Reds',show_norm=False):
      hasdata=False
      rawfile.seek(skipSamples*bytes_per_sample*nch*nSB)
      if not starttime is None:
@@ -43,14 +113,14 @@ def plot_real_time(fig,axarr,rawfile,nch,nSB,freqs,vmin,vmax,maxSamples=10000,sk
         mybuffer = rawfile.read(maxSamples*bytes_per_sample*nch*nSB)
         tmpdata = np.frombuffer(mybuffer,dtype=np.float32) #np.float = np.float64!!
         nSam = tmpdata.shape[0]//(nch*nSB)
-        tmpdata = np.average(tmpdata.reshape(nSam,(nch*nSB))[:-nSam%skiptime,:-(nch*nSB)%skipch].reshape((-1,skiptime,nch*nSB)),axis=1)
-        tmpdata = np.average(tmpdata.reshape(data.shape[0],-1,skipch),axis=2)
+        tmpdata = np.average(tmpdata.reshape(nSam,(nch*nSB))[:nSam-nSam%skiptime].reshape((-1,skiptime,nch*nSB)),axis=1)
+        tmpdata = np.average(tmpdata[:,:(nch*nSB)-(nch*nSB)%skipch].reshape((tmpdata.shape[0],-1,skipch)),axis=2)
         if not hasdata:
              #data=tmpdata.reshape(nSam,(nch*nSB))[::skiptime,::skipch]
              data=tmpdata[:]
              hasdata=True
         else:
-             data=np.concatenate((data,tmpdata),axis=0)
+             data=np.concatenate((data,tmpdata),axis=0)  #faster fill predefined array
         mymedian=np.median(data,axis=0)
         #fig.clf()
         ax=axarr
@@ -69,11 +139,12 @@ def plot_real_time(fig,axarr,rawfile,nch,nSB,freqs,vmin,vmax,maxSamples=10000,sk
              ax.cla()
              ax.plot(freqs[::skipch]*1e-6,mymedian,'k')
              ax.set_xlabel("freq (MHz)")
-        plt.pause(.3)
+        #print ("waiting",0.1*maxSamples*sampleSize,"seconds")
+        plt.pause(0.1*maxSamples*sampleSize)
         #savefig("fig.png")
 
 
-def plot_real_time_complex_voltages(rawfiles,nch,nSB,freqs,vmin,vmax,maxSamples=10000,skiptime=100,skipch=1):
+def plot_real_time_complex_voltages(rawfiles,nch,nSB,freqs,vmin,vmax,maxSamples=1000,skiptime=100,skipch=1):
      hasdata=False
      buffers=['','','','']
      prevminsize=0
@@ -120,7 +191,7 @@ def main(argv):
     if not metadata[u'COMPLEX_VOLTAGE']:
             for i,rawfile in enumerate(rawfiles):
                  fig,axarr=plt.subplots(1+args.show_normalization,1)
-                 plot_real_time(fig,axarr,rawfile,metadata['CHANNELS_PER_SUBBAND'],metadata[u'NOF_SUBBANDS'],metadata['freqs'],args.vmin,args.vmax,skipSamples=skipSamples,starttime=metadata['starttime'],endtime=metadata['endtime'],sampleSize=metadata[u'SAMPLING_TIME'],cmap=args.cmap,show_norm=args.show_normalization)
+                 plot_real_time2(fig,axarr,rawfile,metadata['CHANNELS_PER_SUBBAND'],metadata[u'NOF_SUBBANDS'],metadata['freqs'],args.vmin,args.vmax,skipSamples=skipSamples,starttime=metadata['starttime'],endtime=metadata['endtime'],sampleSize=metadata[u'SAMPLING_TIME'],cmap=args.cmap,show_norm=args.show_normalization)
     else:
             for i in range(len(rawfiles))[::4]:
                 rawfile4=rawfiles[i*4:i*4+4]
