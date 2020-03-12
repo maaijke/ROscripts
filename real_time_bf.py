@@ -32,8 +32,13 @@ def get_metadata_from_h5(h5file):
      return metadata
 
 
-def plot_real_time2(fig,axarr,rawfile,nch,nSB,freqs,vmin,vmax,readTime=10,averagetime=1,averagech=10,skipSamples=0,starttime=None,endtime=None,sampleSize=1./125.,plottime=1800,cmap='Reds',show_norm=False):
+def plot_real_time2(fig,axarr,rawfile,nch,nSB,freqs,vmin,vmax,readTime=10,averagetime=1,averagefreq=.2,skipSamples=0,starttime=None,endtime=None,sampleSize=1./125.,plottime=1800,cmap='Reds',show_norm=False):
      rawfile.seek(skipSamples*bytes_per_sample*nch*nSB)
+     '''averagetime in seconds,averagefreq in MHz'''
+     
+     dfreq = (freqs[-1]-freqs[0])/freqs.shape[0]
+     averagech=int(averagefreq*1e6//dfreq)
+     print ("freq",dfreq,averagefreq,averagech,freqs.shape)
      if not starttime is None:
           starttime += (skipSamples*sampleSize)/(24*3600.)
           starttime_dt =dt.strptime(pt.taql('select str(mjdtodate({})) as date'.format(starttime)).getcol('date')[0], '%Y/%m/%d/%H:%M:%S')
@@ -68,6 +73,8 @@ def plot_real_time2(fig,axarr,rawfile,nch,nSB,freqs,vmin,vmax,readTime=10,averag
           if not tmpdata.shape:
                #out of data increase waittime
                waittime=readTime-1  #1 second for processing?
+               sys.sleep(10)
+               continue
           else:
                waittime=0.01
           nSam = tmpdata.shape[0]//(nch*nSB)
